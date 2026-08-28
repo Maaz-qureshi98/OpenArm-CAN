@@ -311,6 +311,61 @@ def do_home():
         a.release()
 
 
+def do_check(only=None):
+    """Exercise EVERY live joint +/-0.12 rad from the current pose, then the
+    gripper, then return. Works on any arm (incl. joint_6) -- no home pose
+    needed, small safe moves. Ends held; Enter releases."""
+    ensure_can_up()
+    buses = [only] if only else IFACES
+    SOFT = {"joint_1": (-1.35, 3.45), "joint_2": (-0.15, 3.30), "joint_3": (-1.55, 1.55),
+            "joint_4": (0.05, 2.40), "joint_5": (-1.55, 1.55), "joint_6": (-1.55, 1.55),
+            "joint_7": (-1.55, 1.55)}
+    D = 0.12
+    for bus in buses:
+        a = Arm(bus)
+        live = a.probe()
+        print(f"\n=== {bus}: {len(live)}/8  {live} ===")
+        if not ("gripper" in live and len(a._names) >= 6):
+            print(f"{bus}: too few motors -- skip")
+            try: a.c.bus.shutdown()
+            except Exception: pass
+            continue
+        a.start(kp=40.0)
+        time.sleep(1.0)
+        base = {n: a._pos(n) for n in a._names}
+        npass = 0
+        for n in a._names:
+            p0 = base[n]
+            lo, hi = SOFT.get(n, (-1.55, 1.55))
+            errs, moved = [], 0.0
+            for s in (+1, -1):
+                tgt = float(min(hi, max(lo, p0 + s * D)))
+                if abs(tgt - p0) < 0.02:
+                    continue
+                a.goto({n: tgt}, secs=1.6)
+                m = a._pos(n)
+                errs.append(abs(m - tgt)); moved = max(moved, abs(m - p0))
+            a.goto({n: p0}, secs=1.6)
+            ok = errs and max(errs) < 0.15 and moved > 0.4 * D
+            npass += ok
+            print(f"  {n:8s} moved {moved:.3f} rad  settle {max(errs) if errs else 0:.3f}  "
+                  f"{'PASS' if ok else 'CHECK'}")
+        # gripper
+        a._grip_rad = 0.0            # ~closed
+        time.sleep(2.0)
+        a._grip_rad = -0.7854        # open
+        time.sleep(2.0)
+        g = a.m["gripper"].get_states()
+        print(f"  gripper  close/open cycled  (pos now {g['pos']:+.3f} rad)" if g else "  gripper no fb")
+        print(f"\n  {bus}: {npass}/{len(a._names)} joints moved & tracked, + gripper")
+        try:
+            input("  HELD. Press Enter to release: ")
+        except (EOFError, KeyboardInterrupt):
+            pass
+        print(f"  releasing {bus} ... SUPPORT THE ARM")
+        a.release()
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     bus = None
@@ -324,5 +379,7 @@ if __name__ == "__main__":
         do_hold(bus)
     elif cmd == "home":
         do_home()
+    elif cmd == "check":
+        do_check(bus)
     else:
         print(__doc__)
