@@ -27,12 +27,15 @@ import time
 IFACES = ["can0", "can1"]
 BITRATE, DBITRATE = 1_000_000, 5_000_000
 
-# 7-joint order; joint_6 (CAN id 6) is dead on this hardware.
+# Full 7-DOF arm: CAN ids 1..7 + gripper on 8. Whichever joints actually answer
+# are the ones driven -- so a complete arm reads 8/8, and an arm with a missing
+# joint (e.g. one unit here has no joint_6) still works on the rest.
 JOINTS = [("joint_1", 1, "8009"), ("joint_2", 2, "8009"), ("joint_3", 3, "4340"),
-          ("joint_4", 4, "4340"), ("joint_5", 5, "4310"), ("joint_7", 7, "4310")]
+          ("joint_4", 4, "4340"), ("joint_5", 5, "4310"), ("joint_6", 6, "4310"),
+          ("joint_7", 7, "4310")]
 GRIPPER = ("gripper", 8, "4310")
 HOME = {"joint_1": -1.216, "joint_2": -0.175, "joint_3": 0.553, "joint_4": 1.836,
-        "joint_5": -0.127, "joint_7": 1.021}          # right-arm home; left arm has no defined home
+        "joint_5": -0.127, "joint_6": 0.0, "joint_7": 1.021}
 CAN_UP_SH = "/usr/local/sbin/openarm-can-up"
 
 
@@ -155,6 +158,8 @@ class Arm:
             live = [n for n in self.m if self.m[n].get_states()]
             if len(live) == len(self.m):
                 break
+        # only drive joints that actually answered (an arm may be missing one)
+        self._names = [n for n, _, _ in JOINTS if n in live]
         return live
 
     def _pos(self, n):
@@ -253,11 +258,11 @@ def do_hold(only=None):
         a = Arm(bus)
         live = a.probe()
         print(f"{bus}: {len(live)}/{len(a.m)}  {live}")
-        if len(live) == len(a.m):
+        if "gripper" in live and len(a._names) >= 6:
             a.start()
             arms.append(a)
         else:
-            print(f"{bus}: not all motors present -- not energising this bus")
+            print(f"{bus}: too few motors ({len(live)}/8) -- not energising this bus")
             try:
                 a.c.bus.shutdown()
             except Exception:
@@ -279,8 +284,8 @@ def do_home():
     for bus in IFACES:
         a = Arm(bus)
         live = a.probe()
-        if len(live) != len(a.m):
-            print(f"{bus}: {len(live)}/{len(a.m)} -- skipping")
+        if not ("gripper" in live and len(a._names) >= 6):
+            print(f"{bus}: only {len(live)}/8 -- skipping")
             try:
                 a.c.bus.shutdown()
             except Exception:

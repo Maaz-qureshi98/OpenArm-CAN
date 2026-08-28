@@ -38,11 +38,15 @@ every user, with no more password prompts. It applies:
 If you can't run `setup` (no sudo), bring CAN up each session with
 `sudo ./can_up.sh` — same settings, not persistent.
 
-## Buses
+## The two arms
 
-`can0` and `can1`, one per arm, assigned in plug order. `joint_6` (CAN id 6) is
-dead on this hardware and is never commanded, so a healthy arm shows **7/7**
-(joints 1-5, 7 + gripper).
+Each arm is on its own CAN interface (`can0`, `can1`) via its own PEAK adapter.
+Run `python3 openarm_standalone.py probe` — a **complete 7-DOF arm reads 8/8**
+(joints 1-7 + gripper). One of the arms here is missing `joint_6`; the tools
+detect that automatically and just drive the joints that answer.
+
+Not sure which physical arm is which? `python3 extras/which_arm.py --bus canX`
+rocks that arm's shoulder so you can see it.
 
 ## `extras/`
 
